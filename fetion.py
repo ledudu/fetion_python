@@ -14,6 +14,7 @@ import random
 import recv_send
 import threading
 from threading import Timer
+from mailcap import findmatch
 
 FetionOnline = "400"
 FetionBusy   = "600"
@@ -244,11 +245,11 @@ class SIPCKAThread(threading.Thread):
             head=MsgHead()
             head.O = 'fetion.com.cn SIP-C/4.0'
             head.F = ''
-            head.I = self.__sipc.getNextI()
+            head.I = str(self.__sipc.getNextI())
             head.Q = '1 O'
             head.N = 'KeepConnectionBusy'
             msg = head.constructMsgHead()
-            socket.send(msg)
+            sipc.sendMsg(socket, msg, head.I, head.N)
             time.sleep(time)
         
     def stop(self):
@@ -288,17 +289,12 @@ class SIPC:
         self.__curStausCode=0
         self.__state=self.__INITIAL
         self.__curI = 1
+        self.__sendedMsg = dict()
         
     def __del__(self):
         if None != self.__sock:
             self.__sock.close()
-    
-    def getNextI(self):
-        SIPC.ILock.acquire()
-        self.__curI = self.__curI + 1
-        SIPC.ILock.release()
-        return self.__curI 
-        
+                
     def initSock(self):
         if None != self.__sock:
             return self.__sock
@@ -346,36 +342,12 @@ class SIPC:
                 else:
                     break
         print 'len=%d' % len(data)
-        return data
-    
-    def sendTask(self):
-        if None == self.__sock:
-            initSock()
-                
-    #
-    @staticmethod
-    def preParseMsg(msg):
-        msgHead = MsgHead()
-        body=''
-        result = msg.split('\r\n')
-        if len(result) < 1:
-            return (-1, -1, None, None)
-        statusCode = result[0].split(' ')[1]
-        statusInfo = result[0][result[0].find(statusCode)+len(statusCode)+1:]
-        result.pop(0)
-        msgHead.I=str(32)
-        for line in result:
-            if '' == line:
-                continue
-            if '<' == line[0]:
-                body = line
-                break
-            exec('msgHead.%s="%s"' % (line[0], line[3:]))
-        return (statusCode, statusInfo, msgHead, body)       
-            
+        return data    
+
     
     #解析SPIC的回复报文，如果返回负值表示回复的报文有误，为正数表示的是状态值,-1~-10表示报文错误
-    def parseResponse(self, response, ):
+    #这里只实时处理注册时的报文
+    def parseResponse(self, response):
         result=response.split('\r\n')
         if len(result) < 0:
             return -1
@@ -383,7 +355,7 @@ class SIPC:
         statusCode = result[0].split(' ')[1]    #收到回复报文的第一行形如SIP-C/4.0 200 OK
         if '200' == statusCode:   #认证成功，下面对内容进行解析
             #print 'come here'
-            if self.__WAIT_SIPC_VERIFY2 == self.__curStausCode: #认证时报文
+            if self.__WAIT_SIPC_VERIFY2 == self.__state: #认证时报文
                 #这里只解析第一个报文，
                 if len(result) <= 5:
                     print 'the result len is err:'+str(len(result))+'and the result is:'+result
@@ -395,16 +367,21 @@ class SIPC:
                     print 'None 1'
                 else:
                     #将联系人列表中的结果存入到user的friends中
-                    #如果之前friends之前已经有过值了，这里也不管了，直接用新的代替
-                    self.__user.friends = list()
+                    #如果之前已经有了该联系人，那么只有数据有更新的时候才更新上去
                     buddies = buddiesNode.findall('b')
                     for buddy in buddies:
                         newFriend = Friend()
                         newFriend.localName = buddy.get('n', 'another')
                         newFriend.userid = buddy.get('i')
                         newFriend.sip = buddy.get('u')
+                        #todo 这里还需要将用户的状态添加上去，如果用户已经退出飞信了，至少应该把这个状态给标记下来
+                        oldFriend = self.__user.friends.get(newFriend.userid)
                         #print 'nikename is %s, useris is %s sip is %s' % (nikename, userid, sip)
-                        self.__user.friends.append(newFriend)
+                        if None == oldFriend:                           
+                            self.__user.friends[newFriend.userid] = newFriend
+                        if newFriend.localName != oldFriend.localName:
+                            oldFriend.localName = newFriend.localName
+                            self.__user.friends.update({newFriend.userid, oldFriend})
         
         if '401' == statusCode:    #第一次认真的时候必然会返回这个，因为此次主要是为了获取nonce等值，服务端可能就认为是没有输入正确的密码
             if self.__WAIT_SIPC_VERIFY1 == self.__state:
@@ -421,18 +398,6 @@ class SIPC:
                 self.__key = rwParse[2][rwParse[2].find('"')+1:-1]
                 self.__signature = rwParse[3][rwParse[3].find('"')+1:-1]           
         return atoi(statusCode)    
-
-    def getFriendDetail(self, userid, sip):
-        msgHead=MsgHead()
-        msgHead.S = 'fetion.com.cn SIP-C/4.0'
-        msgHead.F = self.__user.spi[:self.__user.spi.find('@')]
-        msgHead.I = str(getNextI())+' '
-        msgHead.Q = '1 S'
-        msgHead.N = 'GetContactInfoV4'
-        body = self.defGetFrdDetail % (userid, sip)
-        msgHead.L = len(body)
-        response = self.sendMsgWaitResponse(msgHead, body, self.__timeout)
-        return
         
     def __RSA_Encrypt(self,plain,length,rsa_n,rsa_e):
         import rsa
@@ -448,7 +413,68 @@ class SIPC:
         key = self.__key
         result = self.__RSA_Encrypt(plain,len(plain),key[:-6],key[-6:])        
         return result
+       
+    #regiseter the client to the server            
+    def SPICRegister(self):
+        self.initSock()
+        #这里只是测试用
+        self.__user.spi='585917501@fetion.com'
+        self.__user.userid='202251968'
+        
+        msgHead=MsgHead()
+        msgHead.R='fetion.com.cn SIP-C/4.0'
+        msgHead.F=self.__user.spi[:self.__user.spi.find('@')]
+        msgHead.I='1'
+        msgHead.Q='1 R'
+        msgHead.CN=random_str(32)
+        msgHead.CL='type="pc",version="4.7.0800"'
+        self.__state = self.__WAIT_SIPC_VERIFY1
+        response=self.sendMsgWaitResponse(msgHead, '', self.__timeout)
+        if '' == response:
+            return -1
+        self.__curStausCode = self.parseResponse(response)
+        msgHead.erase()
+        if __debug__:
+            print self.__curStausCode
+        
+        if self.__ERR_PASSWORD == self.__curStausCode:   #如果是密码错误
+            res = self.constructEncodedResponse()
+            msgHead.R='fetion.com.cn SIP-C/4.0'
+            msgHead.F=self.__user.spi[:self.__user.spi.find('@')]
+            msgHead.I='1'
+            msgHead.Q='2 R'
+            msgHead.CN=''
+            msgHead.CL=''
+            msgHead.A='Digest algorithm="'+self.__DigAlg+'",response="'+res+'"'
+ 
+            body = self.defaultLoginXML % (self.__user.mobileno, self.__user.userid, self.__user.presece)
+            msgHead.L = len(body)
+            self.__state = self.__WAIT_SIPC_VERIFY2
+            response = self.sendMsgWaitResponse(msgHead, body, self.__timeout)
+            self.__curStausCode = self.parseResponse(response)
+            if __debug__:
+                print self.__curStausCode
+                print 'response:'
+                print response
+            
+            #如果认证成功，启动收包任务和keep alive任务    
+            if self.__SUCCESS == self.__curStausCode:
+                   pass             
+        return
+
+    #以下为正常情况下的处理
+    def getNextI(self):
+        SIPC.ILock.acquire()
+        self.__curI = self.__curI + 1
+        SIPC.ILock.release()
+        return self.__curI 
     
+    def sengMsg(self, socket, msg, key, value):
+        socket.send(msg)
+        if self.__sendedMsg.has_key(key):
+            return -1
+        self.__sendedMsg[key] = value
+        
     #报文拆分函数
     @staticmethod
     def divPacket(self, data):
@@ -500,56 +526,58 @@ class SIPC:
     def stopRun(self):
         if None != self.KAThread:
             self.KAThread.stop()
-        
-    #regiseter the client to the server            
-    def SPICRegister(self):
-        self.initSock()
-        #这里只是测试用
-        self.__user.spi='585917501@fetion.com'
-        self.__user.userid='202251968'
-        
-        msgHead=MsgHead()
-        msgHead.R='fetion.com.cn SIP-C/4.0'
-        msgHead.F=self.__user.spi[:self.__user.spi.find('@')]
-        msgHead.I='1'
-        msgHead.Q='1 R'
-        msgHead.CN=random_str(32)
-        msgHead.CL='type="pc",version="4.7.0800"'
-        self.__state = self.__WAIT_SIPC_VERIFY1
-        response=self.sendMsgWaitResponse(msgHead, '', self.__timeout)
-        if '' == response:
-            return -1
-        self.__curStausCode = self.parseResponse(response)
-        msgHead.erase()
-        if __debug__:
-            print self.__curStausCode
-        
-        if self.__ERR_PASSWORD == self.__curStausCode:   #如果是密码错误
-            res = self.constructEncodedResponse()
-            msgHead.R='fetion.com.cn SIP-C/4.0'
-            msgHead.F=self.__user.spi[:self.__user.spi.find('@')]
-            msgHead.I='1'
-            msgHead.Q='2 R'
-            msgHead.CN=''
-            msgHead.CL=''
-            msgHead.A='Digest algorithm="'+self.__DigAlg+'",response="'+res+'"'
- 
-            body = self.defaultLoginXML % (self.__user.mobileno, self.__user.userid, self.__user.presece)
-            msgHead.L = len(body)
-            self.__state = self.__WAIT_SIPC_VERIFY2
-            response = self.sendMsgWaitResponse(msgHead, body, self.__timeout)
-            self.__curStausCode = self.parseResponse(response)
-            if __debug__:
-                print self.__curStausCode
-                print 'response:'
-                print response
-            
-            #如果认证成功，启动收包任务和keep alive任务    
-            if self.__SUCCESS == self.__curStausCode:
-                   pass             
-        return
 
-    def sendMsg(self, to, msg):
+    @staticmethod
+    def preParseMsg(msg):
+        msgHead = MsgHead()
+        body=''
+        result = msg.split('\r\n')
+        if len(result) < 1:
+            return (-1, -1, None, None)
+        statusCode = result[0].split(' ')[1]
+        statusInfo = result[0][result[0].find(statusCode)+len(statusCode)+1:]
+        result.pop(0)
+        msgHead.I=str(32)
+        for line in result:
+            if '' == line:
+                continue
+            if '<' == line[0]:
+                body = line
+                break
+            exec('msgHead.%s="%s"' % (line[0], line[3:]))
+        return (statusCode, statusInfo, msgHead, body)       
+    
+    
+    def findMatchSend(self, key):
+        if self.__sendedMsg.has_key(key):
+            return self.__sendedMsg.pop(key) 
+        return ''
+             
+    def parseMsg(self, msg):
+        statusCode, statusInfo, msgHead, body = preParseMsg(msg)
+        if self.__NORMAL == self.__state:
+            type = self.findMatchSend(msgHead.I)
+            if '' == type:    #如果服务器返回的I值不是之前发过的I值，那么这个消息直接丢弃
+                print 'the message Id is not correct'
+                return -1
+            
+
+    def getFriendDetail(self, userid, sip):
+        msgHead=MsgHead()
+        msgHead.S = 'fetion.com.cn SIP-C/4.0'
+        msgHead.F = self.__user.spi[:self.__user.spi.find('@')]
+        msgHead.I = str(getNextI())+' '
+        msgHead.Q = '1 S'
+        msgHead.N = 'GetContactInfoV4'
+        body = self.defGetFrdDetail % (userid, sip)
+        msgHead.L = len(body)
+        response = self.sendMsgWaitResponse(msgHead, body, self.__timeout)
+        return
+    
+    def updateFriendInfo(self, friend):
+        self.__user.friends.
+                        
+    def sendMsg2(self, to, msg):
         msgHead=MsgHead()
         msgHead.M = 'fetion.com.cn SIP-C/4.0'
         msgHead.F = self.__user.spi[:self.__user.spi.find('@')]
@@ -585,7 +613,7 @@ class user:
         self.userid = ''
         self.ssiCty=SSICertification(self)
         self.presece = FetionHidden   #默认隐身
-        self.friends=list()
+        self.friends=dict()
                 
     def login(self):
         self.ssiCty.ssiCertify()
