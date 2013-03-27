@@ -8,6 +8,7 @@ from locale import atoi
 from binascii import a2b_hex
 import time
 from datetime import date
+import re
 #nonce='105823CE77005E6C1A91825249404B75'
 #key='B2C28349959452251DF2D3C3C9C012D52F19B9AFBA7F38F62A258F631197C56B80CFEEDE4723F7D6A0623F418D3DBC7496AE9F31058BBD52A3F230497F9D1C48C8F12BF50EC2DEE3EBF84D89E5323EA033696B48110C6937F2DAF7B0B42D20CCFD3D947895BAD6C6E75F5F48782E64322438AA63745B5E306684F289975B8C49010001'
 #passeword
@@ -80,14 +81,119 @@ C: text/plain\
 L: 4\
 shit'
 #print hashlib.sha1(a).hexdigest()
+a='123'
+print len(a)
 
+#data1='SIP-C/4.0 200 OK..I: 32..Q: 1 S..L: 583\r\n\r\n<results><contact uri="sip:642086221@fetion.com.cn;p=4012" version="0" user-id="202578745" sid="642086221" basic-service-status="1" mobile-no="13811181235" carrier="CMCC" carrier-status="0" portrait-crc="841039497" name="" nickname="Mourinho" gender="2" birth-date="1899-12-31" birthday-valid="0" birthday-lunar="0" age="113" lunar-animal="0" horoscope="0" impresa="" carrier-region="CN.bj.10." user-region="" personal-email="" work-email="" other-email="" primary-email="0" email-binding-alias="642086221" profile="" blood-type="0" occupation="" hobby="" score-level="7"/></results>'
+#data2='111SIP-C/4.0 200 OK..I: 32..Q: 1 S..L: 583\r\n\r\n<results><contact uri="sip:642086221@fetion.com.cn;p=4012" version="0" user-id="202578745" sid="642086221" basic-service-status="1" mobile-no="13811181235" carrier="CMCC" carrier-status="0" portrait-crc="841039497" name="" nickname="Mourinho" gender="2" birth-date="1899-12-31" birthday-valid="0" birthday-lunar="0" age="113" lunar-animal="0" horoscope="0" impresa="" carrier-region="CN.bj.10." user-region="" personal-email="" work-email="" other-email="" primary-email="0" email-binding-alias="642086221" profile="" blood-type="0" occupation="" hobby="" score-level="7"/></results>222'
+#data3='111SIP-C/4.0 200 OK..I: 32..Q: 1 S..L: 583\r\n\r\n<results><contact uri="sip:642086221@fetion.com.cn;p=4012" version="0" user-id="202578745" sid="642086221" basic-service-status="1" mobile-no="13811181235" carrier="CMCC" carrier-status="0" portrait-crc="841039497" name="" nickname="Mourinho" gender="2" birth-date="1899-12-31" birthday-valid="0" birthday-lunar="0" age="113" lunar-animal="0" horoscope="0" impresa="" carrier-region="CN.bj.10." user-region="" personal-email="" work-email="" other-email="" primary-email="0" email-binding-alias="642086221" profile="" blood-type="0" occupation=""'
+#data4='SIP-C/4.0 200 OK..I: 32..Q: 1 S..L: 583\r\n\r\n<results><contact uri="sip:642086221@fetion.com.cn;p=4012" version="0" user-id="202578745" sid="642086221" basic-service-status="1" mobile-no="13811181235" carrier="CMCC" carrier-status="0" portrait-crc="841039497" name="" nickname="Mourinho" gender="2" birth-date="1899-12-31" birthday-valid="0" birthday-lunar="0" age="113" lunar-animal="0" horoscope="0" impresa="" carrier-region="CN.bj.10." user-region="" personal-email="" work-email="" other-email="" primary-email="0" email-binding-alias="642086221" profile="" blood-type="0" occupation="" hobby="" score-level="7"/></results>SIP-C/4.0 200 OK..I: 32..Q: 1 S..L: 583\r\n\r\n<results><contact uri="sip:642086221@fetion.com.cn;p=4012" version="0" user-id="202578745" sid="642086221" basic-service-status="1" mobile-no="13811181235" carrier="CMCC" carrier-status="0" portrait-crc="841039497" name="" nickname="Mourinho" gender="2" birth-date="1899-12-31" birthday-valid="0" birthday-lunar="0" age="113" lunar-animal="0" horoscope="0" impresa="" carrier-region="CN.bj.10." user-region="" personal-email="" work-email="" other-email="" primary-email="0" email-binding-alias="642086221" profile="" blood-type="0" occupation="" hobby="" score-level="7"/></results>'
+#data5='SIP-C/4.0 200 OK..I: 32..Q: 1 S..L: 583\r\n\r\n'
+#data6='SIP-C/4.0 200 OK..I: 32..Q: 1 S..\r\n\r\n'
+#
+#    
+#r1, r2 = divPacket(data6)
+#for result in r1:
+#    print result
+#
+#print '---'
+#print r2
 
-def h(a, func):
-    return func(a)
+class MsgHead:
+    def __init__(self):
+        self.R=''
+        self.S=''
+        self.M=''
+        self.O=''
+        self.F=''
+        self.I=''
+        self.Q=''
+        self.T=''
+        self.A=''
+        self.C=''
+        self.N=''
+        self.L=''
+        self.CN=''
+        self.CL=''
+    def erase(self):
+        self.R=''
+        self.S=''
+        self.M=''
+        self.O=''
+        self.F=''
+        self.I=''
+        self.Q=''
+        self.T=''
+        self.A=''
+        self.C=''
+        self.N=''
+        self.L=''
+        self.CN=''
+        self.CL=''        
+    def constructMsgHead(self):
+        msgHead=''
+        if '' != self.R:
+            msgHead += 'R '+self.R+'\r\n'
+        if '' != self.S:
+            msgHead += 'S '+self.S+'\r\n'
+        if '' != self.M:
+            msgHead += 'M '+self.M+'\r\n'  
+        if '' != self.O:
+            msgHead += 'O '+self.O+'\r\n'                               
+        if '' != self.F:
+            msgHead += 'F: '+self.F+'\r\n'
+        if '' != self.I:
+            msgHead += 'I: '+self.I+' \r\n'     
+        if '' != self.Q:
+            msgHead += 'Q: '+self.Q+'\r\n' 
+        if '' != self.T:
+            msgHead += 'T: '+self.T+'\r\n'                                
+        if '' != self.A:
+            msgHead += 'A: '+head.A+'\r\n' 
+        if '' != self.C:
+            msgHead += 'C: '+self.C+'\r\n'
+        if '' != self.N:
+            msgHead += 'N: '+self.N+'\r\n'                
+        if '' != self.L:
+            msgHead += 'L: '+str(self.L)+'\r\n' 
+        if '' != self.CN:
+            msgHead += 'CN: '+self.CN+'\r\n'
+        if '' != self.CL:
+            msgHead += 'CL: '+self.CL+'\r\n'                
 
-def ff(a):
-    return a+100
+        msgHead += '\r\n' #head和body之间有两个\r\n
+        return msgHead
     
-aa=1
-m = h(aa, ff)
-print m
+msg1='SIP-C/4.0 200 OK\r\nI: 32\r\nQ: 1 S\r\nL: 583\r\n\r\n<results><contact uri="sip:642086221@fetion.com.cn;p=4012" version="0" user-id="202578745" sid="642086221" basic-service-status="1" mobile-no="13811181235" carrier="CMCC" carrier-status="0" portrait-crc="841039497" name="" nickname="Mourinho" gender="2" birth-date="1899-12-31" birthday-valid="0" birthday-lunar="0" age="113" lunar-animal="0" horoscope="0" impresa="" carrier-region="CN.bj.10." user-region="" personal-email="" work-email="" other-email="" primary-email="0" email-binding-alias="642086221" profile="" blood-type="0" occupation="" hobby="" score-level="7"/></results>'
+msg2='SIP-C/4.0 200 OK\r\nI: 32\r\nQ: 1 S\r\n\r\n'
+def preParseMsg(msg):
+    msgHead = MsgHead()
+    body=''
+    result = msg.split('\r\n')
+    if len(result) < 1:
+        return (-1, -1, None, None)
+    statusCode = result[0].split(' ')[1]
+    statusInfo = result[0][result[0].find(statusCode)+len(statusCode)+1:]
+    result.pop(0)
+    msgHead.I=str(32)
+    for line in result:
+        if '' == line:
+            continue
+        if '<' == line[0]:
+            body = line
+            break
+        exec('msgHead.%s="%s"' % (line[0], line[3:]))
+    return (statusCode, statusInfo, msgHead, body)
+
+statusCode, statusInfo, msgHead, body = preParseMsg(msg1)
+print statusCode
+print statusInfo
+print msgHead
+print body
+
+
+
+
+
+
+              

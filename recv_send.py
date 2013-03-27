@@ -1,16 +1,18 @@
 #encoding=utf-8
-import thread
+import threading
 import select
 
 class recvTask(threading.Thread):
     #传入需要收包的socket以及收到报文以后放入的队列，这里队列使用list就可以了, 
     #func_divPacket(data)传入的报文分段，该函数返回一个报文的（list, left)前面是完整的报文的list，后面是剩下的不完整的报文部份
+    #func_ParsePacket表示的是解析函数
     def __init__(self, socket, func_divPacket, func_ParsePacket, timeout=10):
         self.__socket = socket
         self.__queue = queue
         self.stop = False
         self.__timeout = timeout
         self.recvOnce = 1024
+        threading.Thread.__init__(self)
         
     def stop(self):
         self.__stop = True

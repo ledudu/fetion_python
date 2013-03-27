@@ -12,6 +12,8 @@ import socket
 from select import select
 import random
 import recv_send
+import threading
+from threading import Timer
 
 FetionOnline = "400"
 FetionBusy   = "600"
@@ -160,6 +162,7 @@ class MsgHead:
         self.R=''
         self.S=''
         self.M=''
+        self.O=''
         self.F=''
         self.I=''
         self.Q=''
@@ -174,6 +177,7 @@ class MsgHead:
         self.R=''
         self.S=''
         self.M=''
+        self.O=''
         self.F=''
         self.I=''
         self.Q=''
@@ -184,18 +188,75 @@ class MsgHead:
         self.L=''
         self.CN=''
         self.CL=''        
-        
+    def constructMsgHead(self):
+        msgHead=''
+        if '' != self.R:
+            msgHead += 'R '+self.R+'\r\n'
+        if '' != self.S:
+            msgHead += 'S '+self.S+'\r\n'
+        if '' != self.M:
+            msgHead += 'M '+self.M+'\r\n'  
+        if '' != self.O:
+            msgHead += 'O '+self.O+'\r\n'                               
+        if '' != self.F:
+            msgHead += 'F: '+self.F+'\r\n'
+        if '' != self.I:
+            msgHead += 'I: '+self.I+' \r\n'     
+        if '' != self.Q:
+            msgHead += 'Q: '+self.Q+'\r\n' 
+        if '' != self.T:
+            msgHead += 'T: '+self.T+'\r\n'                                
+        if '' != self.A:
+            msgHead += 'A: '+head.A+'\r\n' 
+        if '' != self.C:
+            msgHead += 'C: '+self.C+'\r\n'
+        if '' != self.N:
+            msgHead += 'N: '+self.N+'\r\n'                
+        if '' != self.L:
+            msgHead += 'L: '+str(self.L)+'\r\n' 
+        if '' != self.CN:
+            msgHead += 'CN: '+self.CN+'\r\n'
+        if '' != self.CL:
+            msgHead += 'CL: '+self.CL+'\r\n'                
+
+        msgHead += '\r\n' #head和body之间有两个\r\n
+        return msgHead
+            
 class Friend:
     localName=''
     nickName=''
     userid=''
     sip=''
-            
-            
-class SPIC:            
+
+#起一个进程，定时发送保活报文            
+class SIPCKAThread(threading.Thread):
+    #默认30s发一个KA报文
+    def __init(self, socket, sipc, time=30):
+        self.__socket = socket
+        self.__time = time
+        self.__sipc = sipc
+        self.__stop = False
+        threading.Thread.__init__(self)
+        
+    def run(self):
+        while False == self.__stop:
+            nextI = sipc.getNextI()
+            head=MsgHead()
+            head.O = 'fetion.com.cn SIP-C/4.0'
+            head.F = ''
+            head.I = self.__sipc.getNextI()
+            head.Q = '1 O'
+            head.N = 'KeepConnectionBusy'
+            msg = head.constructMsgHead()
+            socket.send(msg)
+            time.sleep(time)
+        
+    def stop(self):
+        self.__stop = True
+        
+class SIPC:            
     __timeout=5
     __ERR_PACKET = -1
-    
     
     __ERR_PASSWORD = 401
     __SUCCESS = 200
@@ -207,6 +268,7 @@ class SPIC:
     __WAIT_SIPC_VERIFY2 = 3
     __WAIT_SIPC_CONTACTDETAIL = 4
     
+    ILock = threading.Lock()
     def __init__(self, user):
         self.spicProxy='115.181.16.78:8080'
         self.defaultR = 'fetion.com.cn SIP-C/4.0'
@@ -230,6 +292,12 @@ class SPIC:
     def __del__(self):
         if None != self.__sock:
             self.__sock.close()
+    
+    def getNextI(self):
+        SIPC.ILock.acquire()
+        self.__curI = self.__curI + 1
+        SIPC.ILock.release()
+        return self.__curI 
         
     def initSock(self):
         if None != self.__sock:
@@ -244,39 +312,6 @@ class SPIC:
             print "socket connect error in spic"
         return self.__sock
     
-    def constructMsgHead(self, head):
-        msgHead=''
-        if True == isinstance(head, MsgHead):
-            if '' != head.R:
-                msgHead += 'R '+head.R+'\r\n'
-            if '' != head.S:
-                msgHead += 'S '+head.S+'\r\n'
-            if '' != head.M:
-                msgHead += 'M '+head.M+'\r\n'                
-            if '' != head.F:
-                msgHead += 'F: '+head.F+'\r\n'
-            if '' != head.I:
-                msgHead += 'I: '+head.I+' \r\n'     
-            if '' != head.Q:
-                msgHead += 'Q: '+head.Q+'\r\n' 
-            if '' != head.T:
-                msgHead += 'T: '+head.T+'\r\n'                                
-            if '' != head.A:
-                msgHead += 'A: '+head.A+'\r\n' 
-            if '' != head.C:
-                msgHead += 'C: '+head.C+'\r\n'
-            if '' != head.N:
-                msgHead += 'N: '+head.N+'\r\n'                
-            if '' != head.L:
-                msgHead += 'L: '+str(head.L)+'\r\n' 
-            if '' != head.CN:
-                msgHead += 'CN: '+head.CN+'\r\n'
-            if '' != head.CL:
-                msgHead += 'CL: '+head.CL+'\r\n'                
-
-            msgHead += '\r\n' #head和body之间有两个\r\n
-        return msgHead
-  
     #这里只处理发一个报文然后等着回一个报文的情况。这里一般使用阻塞，如果会回多个报文之类的，这里判断response可能就不准了
     #但是收全第一个报文应该是没有问题的，这个只是在登录的时候使用，在登录以后，后面报文的首发都使用任务来进行处理
     def sendMsgWaitResponse(self, head, body, timeout=__timeout):
@@ -287,7 +322,7 @@ class SPIC:
         
         if None == self.__sock:
             initSock()
-        msgHead=self.constructMsgHead(head)
+        msgHead=head.constructMsgHead()
         msg=msgHead+body
         print 'msgsend'+msg
         
@@ -317,7 +352,27 @@ class SPIC:
         if None == self.__sock:
             initSock()
                 
-    
+    #
+    @staticmethod
+    def preParseMsg(msg):
+        msgHead = MsgHead()
+        body=''
+        result = msg.split('\r\n')
+        if len(result) < 1:
+            return (-1, -1, None, None)
+        statusCode = result[0].split(' ')[1]
+        statusInfo = result[0][result[0].find(statusCode)+len(statusCode)+1:]
+        result.pop(0)
+        msgHead.I=str(32)
+        for line in result:
+            if '' == line:
+                continue
+            if '<' == line[0]:
+                body = line
+                break
+            exec('msgHead.%s="%s"' % (line[0], line[3:]))
+        return (statusCode, statusInfo, msgHead, body)       
+            
     
     #解析SPIC的回复报文，如果返回负值表示回复的报文有误，为正数表示的是状态值,-1~-10表示报文错误
     def parseResponse(self, response, ):
@@ -371,8 +426,7 @@ class SPIC:
         msgHead=MsgHead()
         msgHead.S = 'fetion.com.cn SIP-C/4.0'
         msgHead.F = self.__user.spi[:self.__user.spi.find('@')]
-        self.__curI=+1
-        msgHead.I = str(self.__curI)+' '
+        msgHead.I = str(getNextI())+' '
         msgHead.Q = '1 S'
         msgHead.N = 'GetContactInfoV4'
         body = self.defGetFrdDetail % (userid, sip)
@@ -394,6 +448,58 @@ class SPIC:
         key = self.__key
         result = self.__RSA_Encrypt(plain,len(plain),key[:-6],key[-6:])        
         return result
+    
+    #报文拆分函数
+    @staticmethod
+    def divPacket(self, data):
+        packetList = list()
+        left = data
+        while True:
+            index = left.find('SIP-C/4.0 ')
+            if (-1 != index):
+                left = left[index:]
+            valid=re.compile('SIP-C/4.0 .*\r\n\r\n.*')
+            r1=valid.match(left)
+            if None == r1:
+                return (packetList, left)
+            packets = str(r1.group(0))
+            dataLen = len(packets)
+            bodyIndex = packets.find('\r\n\r\n')+4
+            #如果pakcets以'\r\n\r\n'结尾，并且报文头中也没有L，那么说明没有报文体，可以认为报文头就是一个报文
+            Lindex = packets[:bodyIndex-4].find('L: ')
+            if -1 == Lindex:
+                packetList.append(packets[:bodyIndex-1])
+                if dataLen == bodyIndex:
+                    left = ''
+                    return (packetList, left)
+                left = packets[bodyIndex:]
+                    
+            Lindex = Lindex+3
+            packlen = atoi(packets[Lindex:bodyIndex])
+            #说明剩下的不够一个报文
+            if packlen > len(packets[bodyIndex:]):
+                print 'A'
+                return (packetList, left)
+            elif packlen == len(packets[bodyIndex:]):
+                print 'B'
+                packetList.append(packets)
+                left=''
+                return  (packetList, left)
+            else:
+                print 'C'
+                packetList.append(packets[:bodyIndex+packlen])
+                left = packets[bodyIndex+packlen:]
+                
+    def startRun(self):
+        self.KAThread = SIPCKAThread(self.__sock, self)
+        self.KAThread.start()
+        
+        recvTask(self.__sock, func_divPacket, func_ParsePacket)
+        return
+    
+    def stopRun(self):
+        if None != self.KAThread:
+            self.KAThread.stop()
         
     #regiseter the client to the server            
     def SPICRegister(self):
@@ -440,16 +546,14 @@ class SPIC:
             
             #如果认证成功，启动收包任务和keep alive任务    
             if self.__SUCCESS == self.__curStausCode:
-                   
-                        
+                   pass             
         return
 
     def sendMsg(self, to, msg):
         msgHead=MsgHead()
         msgHead.M = 'fetion.com.cn SIP-C/4.0'
         msgHead.F = self.__user.spi[:self.__user.spi.find('@')]
-        self.__curI=+1
-        msgHead.I = str(self.__curI)+' '
+        msgHead.I = str(getNextI())+' '
         msgHead.Q = '1 M'
         msgHead.T = to
         msgHead.C = 'text/plain'
@@ -495,9 +599,12 @@ class user:
         
 ut1=user('13810686793', 'Lyz8401')
 #ut1.login()
-spic1=SPIC(ut1)
-spic1.SPICRegister()
+#spic1=SIPC(ut1)
+#spic1.SPICRegister()
 
-spic1.sendMsg('sip:681545999@fetion.com.cn;p=4612', 'this is first msg')
+#spic1.sendMsg('sip:681545999@fetion.com.cn;p=4612', 'this is first msg')
 #test1
+
+spic1=SIPC(ut1)
+print spic1.getNextI()
 print 'result should be ** and result is '+ut1.ssic     
